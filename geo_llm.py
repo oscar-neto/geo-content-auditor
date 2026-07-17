@@ -231,29 +231,59 @@ def _call_anthropic(api_key, model, system, user, timeout=120):
 
 
 def _call_openai(api_key, model, system, user, timeout=120):
-    r = requests.post(
-        ENDPOINTS["openai"],
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "max_tokens": 3000,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "response_format": {"type": "json_object"},
-        },
-        timeout=timeout,
-    )
+    """
+    Modelos novos da OpenAI (GPT-5.x, o-series) trocaram `max_tokens` por
+    `max_completion_tokens` e rejeitam o antigo com HTTP 400. Modelos antigos
+    (gpt-4o, gpt-4.1) só aceitam o antigo. Tentamos o novo e, se o servidor
+    reclamar do parâmetro, refazemos com o legado — assim funciona nos dois.
+    """
+    payload = {
+        "model": model,
+        "max_completion_tokens": 3000,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+
+    def _post(body):
+        return requests.post(
+            ENDPOINTS["openai"],
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=timeout,
+        )
+
+    r = _post(payload)
+
+    # fallback para modelos legados que só conhecem max_tokens
+    if r.status_code == 400 and "max_completion_tokens" in r.text and "nsupported" in r.text:
+        legacy = dict(payload)
+        legacy.pop("max_completion_tokens")
+        legacy["max_tokens"] = 3000
+        r = _post(legacy)
+
     if r.status_code == 429:
         raise RateLimitError(r.text[:200])
     if r.status_code >= 400:
         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+
     d = r.json()
-    text = d["choices"][0]["message"]["content"]
+    choice = d["choices"][0]
+    text = choice["message"].get("content") or ""
+
+    # modelos com reasoning podem estourar o teto só com tokens de raciocínio,
+    # devolvendo content vazio — falha silenciosa que vira "JSON inválido" lá na frente
+    if not text.strip():
+        raise RuntimeError(
+            f"Modelo retornou conteúdo vazio (finish_reason={choice.get('finish_reason')}). "
+            "Provável estouro do limite de tokens com raciocínio interno."
+        )
+
     u = d.get("usage", {})
     return text, u.get("prompt_tokens", 0), u.get("completion_tokens", 0)
 
