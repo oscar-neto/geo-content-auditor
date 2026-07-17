@@ -14,6 +14,10 @@ import streamlit as st
 import geo_batch as B
 import geo_llm as L
 
+import inspect, geo_batch
+st.warning(f"DIAGNÓSTICO — channel no geo_batch: "
+           f"{'channel=\"chromium\" PRESENTE ✓' if 'channel=' in inspect.getsource(geo_batch._render_batch) else 'AUSENTE ✗ — arquivo antigo!'}")
+
 st.set_page_config(page_title="GEO Auditor Híbrido", page_icon="◐", layout="wide")
 
 STATUS_ICON = {"PASSA": "🟢", "PARCIAL": "🟡", "FALHA": "🔴", "N/A": "⚪"}
