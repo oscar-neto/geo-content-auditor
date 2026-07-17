@@ -95,7 +95,14 @@ async def _render_batch(urls, ua, timeout, wait, concurrency, recycle_every, on_
         chunks = [urls[i:i + recycle_every] for i in range(0, len(urls), recycle_every)]
 
         for chunk in chunks:
+            # channel="chromium" força o binário completo do Chromium.
+            # Sem isso, o launch headless procura o *chromium headless shell*,
+            # que é um download separado e frequentemente ausente no Streamlit
+            # Cloud — daí o erro "Executable doesn't exist at
+            # .../chromium_headless_shell-XXXX/...". O binário completo roda
+            # headless igual; só não é a variante enxuta.
             browser = await p.chromium.launch(
+                channel="chromium",
                 args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
                       "--single-process", "--no-zygote"]
             )
