@@ -627,5 +627,3 @@ def audit(url: str, timeout: int, wait: int, ua: str) -> AuditResult:
         target_question=detect_question(main, h1),
         content_type=guess_type(main, text, wc),
     )
-
-
