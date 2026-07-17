@@ -85,7 +85,7 @@ Você avalia APENAS 5 critérios semânticos. Os critérios mecânicos (contagem
 
 Você é rigoroso. Conteúdo de marca brasileiro tipicamente falha em substância e tom — não seja generoso. "PASSA" significa que o conteúdo realmente serve como fonte citável por uma IA, não que ele é "aceitável".
 
-Responda EXCLUSIVAMENTE com JSON válido. Sem markdown, sem crases, sem preâmbulo."""
+Responda EXCLUSIVAMENTE com um objeto json válido. Sem markdown, sem crases, sem preâmbulo. A saída inteira deve ser json parseável."""
 
 RUBRIC = """
 ## CRITÉRIOS
@@ -246,6 +246,16 @@ def _call_openai(api_key, model, system, user, timeout=120):
         ],
         "response_format": {"type": "json_object"},
     }
+
+    # A OpenAI exige a palavra "json" literal nas mensagens para aceitar
+    # response_format=json_object, e a checagem é sensível a caixa: "JSON" no
+    # prompt não satisfaz. Em vez de depender do fraseado (que qualquer edição
+    # futura do prompt pode quebrar), garantimos aqui.
+    joined = (system + " " + user).lower()
+    if "json" not in joined:
+        payload["messages"][0]["content"] = (
+            system + "\n\nFormato de saída: responda somente com um objeto json válido."
+        )
 
     def _post(body):
         return requests.post(
