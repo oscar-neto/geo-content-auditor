@@ -38,8 +38,8 @@ def ensure_chromium():
     caminho valha no build e no runtime do Streamlit Cloud. Sem isso, o binário
     cai num cache que o processo de runtime não enxerga.
 
-    Instala com `--with-deps` quando possível (traz libs de sistema) e valida
-    subindo o browser de verdade — com a MESMA config do lote.
+    Instala chromium + headless shell (sem --with-deps, que trava no Cloud) e
+    valida subindo o browser — com a MESMA config do lote.
 
     Retorna (ok, log).
     """
@@ -65,26 +65,27 @@ def ensure_chromium():
             return True, logs[0] + f"\n{msg}"
         logs.append(f"Binário presente mas probe falhou → {msg}")
 
-    # instala no caminho fixado. O launch headless usa o chromium-headless-shell,
-    # que é um binário SEPARADO — instalá-lo explicitamente é o que resolve o erro
-    # "Executable doesn't exist at .../chromium_headless_shell-XXXX/...".
-    # --with-deps precisa de root; se falhar, cai para versão sem deps (as libs
-    # de sistema vêm do packages.txt no Streamlit Cloud).
+    # Instala no caminho fixado. NÃO usar --with-deps: ele chama apt-get, que
+    # exige root e TRAVA esperando confirmação no Streamlit Cloud (as libs de
+    # sistema vêm do packages.txt). stdin fechado + timeout curto garantem que
+    # um comando problemático falhe rápido em vez de pendurar a tela.
     for cmd in (
-        [sys.executable, "-m", "playwright", "install", "--with-deps", "chromium", "chromium-headless-shell"],
         [sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
         [sys.executable, "-m", "playwright", "install", "chromium"],
     ):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
-                               env={**os.environ,
-                                    "PLAYWRIGHT_BROWSERS_PATH": geo_bootstrap.BROWSERS_PATH})
+            r = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=240,
+                stdin=subprocess.DEVNULL,
+                env={**os.environ,
+                     "PLAYWRIGHT_BROWSERS_PATH": geo_bootstrap.BROWSERS_PATH},
+            )
             tail = (r.stderr or r.stdout or "").strip()[-500:]
             logs.append(f"$ {' '.join(cmd[3:])} → exit={r.returncode}\n  {tail}")
             if r.returncode == 0 and geo_bootstrap.chromium_binary_exists():
                 break
         except subprocess.TimeoutExpired:
-            logs.append(f"$ {' '.join(cmd[3:])} → timeout (600s)")
+            logs.append(f"$ {' '.join(cmd[3:])} → timeout (240s) — abortado")
         except Exception as e:
             logs.append(f"$ {' '.join(cmd[3:])} → {type(e).__name__}: {e}")
 
@@ -93,7 +94,9 @@ def ensure_chromium():
     return ok, "\n".join(logs)
 
 
-_boot_ok, _boot_log = ensure_chromium()
+with st.spinner("Preparando o navegador headless (Chromium). Na primeira "
+                "execução isto baixa ~150 MB e leva 1–3 min; depois fica em cache."):
+    _boot_ok, _boot_log = ensure_chromium()
 
 if not _boot_ok:
     st.error("**O Chromium não pôde ser instalado.** Sem ele, nenhuma URL pode ser "
