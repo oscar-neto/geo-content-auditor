@@ -4,6 +4,8 @@ Audita conteúdo renderizado (DOM via Playwright) contra critérios de GEO.
 Sem LLM: apenas heurísticas determinísticas.
 """
 
+import geo_bootstrap  # fixa PLAYWRIGHT_BROWSERS_PATH antes de importar playwright
+
 import asyncio
 import io
 import re
@@ -627,3 +629,5 @@ def audit(url: str, timeout: int, wait: int, ua: str) -> AuditResult:
         target_question=detect_question(main, h1),
         content_type=guess_type(main, text, wc),
     )
+
+

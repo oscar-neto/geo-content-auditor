@@ -35,15 +35,33 @@ streamlit run app_hybrid.py
 
 ## Streamlit Community Cloud
 
-`requirements.txt` e `packages.txt` já incluídos. O Chromium **não** é instalado
-automaticamente — se o deploy falhar, é quase sempre isso. Rode `playwright install
-chromium` via console ou adicione ao processo de build.
+`requirements.txt` e `packages.txt` já incluídos. O ponto crítico é o Chromium.
 
-**Limites do Community Cloud (1GB RAM):**
-- Até ~25 URLs por lote
-- Concorrência 3
-- Reciclagem de browser a cada 8 páginas (já é o default)
-- Para 100+ URLs, rode local ou em VM
+### Por que o erro "Executable doesn't exist ... chromium_headless_shell" acontece
+
+Em modo headless o Playwright **não** usa o Chromium completo — usa o
+`chromium-headless-shell`, um binário **separado**. O `playwright install chromium`
+nem sempre traz esse binário, e o Streamlit Cloud não roda hook de build. Resultado:
+o app sobe, mas todo lote falha ao lançar o browser.
+
+### Como este projeto resolve
+
+1. **`geo_bootstrap.py`** fixa `PLAYWRIGHT_BROWSERS_PATH` para uma pasta dentro do
+   projeto (`.pw-browsers/`), para o mesmo caminho valer no build e no runtime.
+   É importado **antes** de qualquer módulo que use Playwright.
+2. **`ensure_chromium()`** no `app_hybrid.py` instala, na primeira execução,
+   **chromium E chromium-headless-shell** nesse caminho, e valida subindo o
+   browser de verdade. Se falhar, mostra o log real na tela.
+
+A primeira carga leva 1–3 min baixando os binários. Depois, cacheado por container.
+
+### Se ainda falhar
+
+O app mostra um log de diagnóstico na tela. Na ordem de probabilidade:
+1. **Reboot** (Manage app → ⋮ → Reboot app) — o download falha por rede e passa na 2ª.
+2. Confirme `packages.txt` na raiz (libs de sistema; sem elas o binário baixa mas não sobe).
+3. Memória: 1GB é apertado. Reboot limpa.
+4. Persistindo, rode local — o checkpoint garante que nada se perde.
 
 ## Custo (medido, não estimado)
 

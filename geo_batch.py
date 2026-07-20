@@ -8,6 +8,8 @@ Responsabilidades:
 - Score híbrido combinando as duas fontes
 """
 
+import geo_bootstrap  # fixa PLAYWRIGHT_BROWSERS_PATH antes de importar playwright
+
 import asyncio
 import json
 import os
@@ -95,14 +97,11 @@ async def _render_batch(urls, ua, timeout, wait, concurrency, recycle_every, on_
         chunks = [urls[i:i + recycle_every] for i in range(0, len(urls), recycle_every)]
 
         for chunk in chunks:
-            # channel="chromium" força o binário completo do Chromium.
-            # Sem isso, o launch headless procura o *chromium headless shell*,
-            # que é um download separado e frequentemente ausente no Streamlit
-            # Cloud — daí o erro "Executable doesn't exist at
-            # .../chromium_headless_shell-XXXX/...". O binário completo roda
-            # headless igual; só não é a variante enxuta.
+            # O binário é resolvido via PLAYWRIGHT_BROWSERS_PATH (ver
+            # geo_bootstrap). NÃO usar channel="chromium": em headless isso
+            # aponta para um executável que pode não existir e reproduz o erro
+            # "Executable doesn't exist" (bug conhecido do Playwright).
             browser = await p.chromium.launch(
-                channel="chromium",
                 args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
                       "--single-process", "--no-zygote"]
             )

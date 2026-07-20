@@ -3,10 +3,18 @@ GEO Content Auditor — Hybrid Edition
 Heurística (10 critérios determinísticos) + LLM (5 critérios semânticos).
 """
 
+# geo_bootstrap fixa PLAYWRIGHT_BROWSERS_PATH e PRECISA vir antes de qualquer
+# import que arraste o Playwright (geo_batch, geo_core).
+import geo_bootstrap
+
 import io
+import os
 import re
+import subprocess
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -15,6 +23,96 @@ import geo_batch as B
 import geo_llm as L
 
 st.set_page_config(page_title="GEO Auditor Híbrido", page_icon="◐", layout="wide")
+
+
+# ---------------------------------------------------------------- bootstrap
+
+
+@st.cache_resource(show_spinner=False)
+def ensure_chromium():
+    """
+    Garante que o Chromium sobe ANTES de rodar o lote.
+
+    Estratégia (ver geo_bootstrap): o browser é instalado em
+    PLAYWRIGHT_BROWSERS_PATH, uma pasta dentro do projeto, para que o mesmo
+    caminho valha no build e no runtime do Streamlit Cloud. Sem isso, o binário
+    cai num cache que o processo de runtime não enxerga.
+
+    Instala com `--with-deps` quando possível (traz libs de sistema) e valida
+    subindo o browser de verdade — com a MESMA config do lote.
+
+    Retorna (ok, log).
+    """
+    def _probe():
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                b = p.chromium.launch(
+                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+                          "--single-process", "--no-zygote"],
+                )
+                ver = b.version
+                b.close()
+            return True, f"Chromium {ver} operacional em {geo_bootstrap.BROWSERS_PATH}"
+        except Exception as e:
+            return False, f"{type(e).__name__}: {str(e)[:400]}"
+
+    logs = [f"PLAYWRIGHT_BROWSERS_PATH = {geo_bootstrap.BROWSERS_PATH}"]
+
+    if geo_bootstrap.chromium_binary_exists():
+        ok, msg = _probe()
+        if ok:
+            return True, logs[0] + f"\n{msg}"
+        logs.append(f"Binário presente mas probe falhou → {msg}")
+
+    # instala no caminho fixado. O launch headless usa o chromium-headless-shell,
+    # que é um binário SEPARADO — instalá-lo explicitamente é o que resolve o erro
+    # "Executable doesn't exist at .../chromium_headless_shell-XXXX/...".
+    # --with-deps precisa de root; se falhar, cai para versão sem deps (as libs
+    # de sistema vêm do packages.txt no Streamlit Cloud).
+    for cmd in (
+        [sys.executable, "-m", "playwright", "install", "--with-deps", "chromium", "chromium-headless-shell"],
+        [sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+    ):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
+                               env={**os.environ,
+                                    "PLAYWRIGHT_BROWSERS_PATH": geo_bootstrap.BROWSERS_PATH})
+            tail = (r.stderr or r.stdout or "").strip()[-500:]
+            logs.append(f"$ {' '.join(cmd[3:])} → exit={r.returncode}\n  {tail}")
+            if r.returncode == 0 and geo_bootstrap.chromium_binary_exists():
+                break
+        except subprocess.TimeoutExpired:
+            logs.append(f"$ {' '.join(cmd[3:])} → timeout (600s)")
+        except Exception as e:
+            logs.append(f"$ {' '.join(cmd[3:])} → {type(e).__name__}: {e}")
+
+    ok, msg = _probe()
+    logs.append(("✓ " if ok else "✗ ") + msg)
+    return ok, "\n".join(logs)
+
+
+_boot_ok, _boot_log = ensure_chromium()
+
+if not _boot_ok:
+    st.error("**O Chromium não pôde ser instalado.** Sem ele, nenhuma URL pode ser "
+             "renderizada — o app não tem como funcionar.")
+    with st.expander("Ver log do diagnóstico", expanded=True):
+        st.code(_boot_log, language="bash")
+    st.markdown("""
+**O que costuma resolver, em ordem:**
+
+1. **Reboot do app.** No Streamlit Cloud: `Manage app` → `⋮` → `Reboot app`.
+   O download às vezes falha por rede e passa na segunda.
+2. **Confirme o `packages.txt`** na raiz do repo, com as libs de sistema do
+   Chromium. Sem elas o binário baixa mas não sobe.
+3. **Memória.** O Community Cloud dá 1GB. Se outro processo já consumiu, o
+   launch falha. Reboot limpa.
+4. Se persistir, rode local — o Playwright no Cloud é notoriamente frágil.
+""")
+    st.stop()
+
 
 STATUS_ICON = {"PASSA": "🟢", "PARCIAL": "🟡", "FALHA": "🔴", "N/A": "⚪"}
 
